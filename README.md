@@ -1,2 +1,2 @@
 # CogwheelSearch
-A python program that search valid Cogwheel phase cycling for NMR pulse sequences
+A python program that searches for valid cogwheel phase cycling for NMR pulse sequences
