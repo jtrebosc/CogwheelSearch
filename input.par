@@ -19,6 +19,14 @@ allowed_coherences=     # allowed coherences array for pathways filtering
 required_pathways=      # required pathway that must be allowed : one pathway per line
  0  1 -1  3  0
  0 -1  1 -3  0
+
+#allowed_pathways=       # allowed pathway that may be allowed because of low efficiency : one pathway per line
+#  0  1 -1  3 -1
+#  0 -1  1 -3  1
+
+#forbidden_pathways=      # pathways that are not allowed even if unwanted_path_max is not reached
+#  *  *  *  1  *      # wildcards are allowed any pathway that goes on 1 instead of 3Q
+
 #               p1 p2 p3 p4
 cycled_pulses =  1  1  1  1 # pulses that are cycled 
 # 0 means the pulse winding will be fixed to 0 hence not cycled
