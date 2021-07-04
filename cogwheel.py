@@ -14,9 +14,13 @@ import itertools
 import multiprocessing as mp
 from numba import jit, njit
 
+WILDCARD = '-999'      # integer that represents a wild card for managing forbidden_pathways wildcard
+
 allowed_parameters = { # key is name of parameter, value is dimension : 0 is scalar, 1 is list, 2  is list of list
     'allowed_coherences':2,
     'required_pathways':2,
+    'allowed_pathways':2,   
+    'forbidden_pathways':2,   
     'cycled_pulses':1,
     'unwanted_path_max':0,
     'COGN_min':0,
@@ -33,6 +37,8 @@ def read_input_file(filename):
     a dictionnary with the parameters read from the file:
     allowed_coherences (list of list)
     required_pathways (list of list)
+    allowed_pathways (list of list)  with wild cards
+    forbidden_pathways (list of list)   
     cycled_pulses (list)
     unwanted_path_max (int)
     COGN_min (int)
@@ -50,6 +56,8 @@ def readpar(lines, i):
     values = []
     name, value = lines[i].split('=') # at that point there must be a = sign in line
     name = name.strip()
+    # replace '*' by WILDCARD in value
+    value = value.replace('*', WILDCARD)
     if len(value) > 0: # there is a value after =
         if allowed_parameters[name] == 0 :
             return name, int(value)
@@ -60,6 +68,8 @@ def readpar(lines, i):
     j = i+1
     while  (j < len(lines)) and ('=' not in lines[j]) and (lines[j] != ''):
 #        print(i, len(lines)) 
+        # replace '*' by WILDCARD in line
+        lines[j] = lines[j].replace('*', WILDCARD)
         value = [int(v) for v in lines[j].split()]
         j += 1
         values.append(value)
@@ -67,6 +77,11 @@ def readpar(lines, i):
     return name, values
 
 def remove_comments(lines):
+    """Removes comments in an array of strings. 
+    Array elements starting with # are removed, strings with # are stripped.
+    input : array of strings
+    output : new array of strings with comments removed
+    """
     new_lines = []
     for line in lines:
         if line.startswith('#') : continue # a hash starting a line : the whole line doesn't count
@@ -80,13 +95,14 @@ def parse_input_paramters(lines):
     input : the lines from parameter file
     ----- result -----
     a dictionnary with the parameters read from the file:
-    allowed_coherences (list of list)
-    required_pathways (list of list)
-    cycled_pulses (list)
-    unwanted_path_max (int)
-    COGN_min (int)
-    COGN_max (int)
-    COGN_step (int)
+    allowed_coherences (list of list) : Allowed coherences for every evolution used to calculate all possible pathways
+    required_pathways (list of list) : pathways that must be allowed by cogwheel solution
+    allowed_pathways  (list of list) :pathways that are not required but can be allowed because expected efficiency is very weak
+    cycled_pulses (list) : The pulses for which windings numbers are searched. if 0, the winding is fixed to 0
+    unwanted_path_max (int) : maximum number of unwanted pathway (neither required nor allowed)
+    COGN_min (int) : initial number of phases searched
+    COGN_max (int) : maximum number of phases searched 
+    COGN_step (int): increment of number of phases searched 
    """  
     parameters = {}
     # strip any comment
@@ -120,7 +136,12 @@ allowed_coherences=     # allowed coherences array for pathways filtering
 
 required_pathways=      # required pathway that must be allowed : one pathway per line
  0  1 -1  3 -1
- 0 -1  1 -3 -1
+ 0 -1  1 -3  1
+allowed_pathways=       # allowed pathways that are not required
+ 0 -1  1  3 -1
+ 0  1 -1 -3  1
+forbidden_pathways=       # allowed pathways that are not required
+ *  *  *  *  0            # forbidden pathways can use * wild card: here any pathway finishing on 0 is excluded
 
 cycled_pulses =  1 1 0 1 # pulses that are cycled (0 means the pulse winding will be fixed to 1) 
                          #                        (1 means the all winding are searched for the pulse)
@@ -135,63 +156,8 @@ ENDPAR========  ========   ENDPAR string with 8 = sign marks the end of paramete
 Results will be stored after that mark. Any previously stored results will be deleted
 """
 
-if len(sys.argv) > 1:
-    filename = sys.argv[1]
-    lines = read_input_file(filename)
-    parameters = parse_input_paramters(lines)
-    allowed_coherences = np.array(parameters['allowed_coherences'])
-    required_pathways = np.array(parameters['required_pathways'])
-    cycled_pulses = np.array(parameters['cycled_pulses'])
-    unwanted_path_max = parameters['unwanted_path_max']
-    COGN_min =  parameters['COGN_min']
-    COGN_max = parameters['COGN_max']
-    COGN_step = parameters['COGN_step']
-    max_core = parameters['max_core']
-else:
-    # inputs the expected possible coherences
-    allowed_coherences = np.array([
-    # p1 p2 p1 pf pf pc            
-    [0 ,0, 0, 1, 0,],  # 3Q     0, 
-    [0 ,0, 0, 1, 0,],  # 2Q     0, 
-    [0 ,1, 1, 1, 1,],  # 1Q     0, 
-    [1 ,1, 1, 1, 1,],  # 0Q     1, 
-    [0 ,1, 1, 1, 1,],  #-1Q     0, 
-    [0 ,0, 0, 1, 0,],  #-2Q     0, 
-    [0 ,0, 0, 1, 0,],  #-3Q     0, 
-    ], dtype=int)
-
-    # specify the coherence pathway to authorize
-    required_pathways = np.array([
-    [0, -1, 1,-3, 0,],
-    [0,  1,-1, 3, 0,],
-    ], dtype=int)
-    # ,0, 0,
-    # ,0, 0,
-
-    # p1 p2 p1 pf pf pc            
-    cycled_pulses = np.array([
-      1, 1, 1, 1, 
-    ]) # 0 if winding is not searched (winding fixed to 0), 1 if winding searched up to COGN 
-
-    unwanted_path_max = 0
-    COGN_min =  10
-    COGN_max = 24
-    COGN_step = 2
-    max_core = 4
-
-required_deltaP = np.ones_like(required_pathways) 
-required_deltaP[:,0:-1] = required_pathways[:,1:] - required_pathways[:,:-1]
-wdg_len = required_deltaP.shape[-1]
-num_of_pulses = wdg_len - 1
-
-max_Q= allowed_coherences.shape[0]//2
-# convd_allowed_coh to contain a list of coherence levels allowed between pulses
-convd_allowed_coh = [[max_Q - coh for coh in 
-                      np.flatnonzero(allowed_coherences[:,col])] 
-                                         for col in range(wdg_len)]
-
 @njit
-def path_allowed(windings, deltaP, N):
+def path_is_allowed(windings, deltaP, N):
     """ Check if a deltaP pathway is allowed by windings numbers.
 windings : a 1D ndarray of size N containing the cogwheel winding numbers of 
 the different pulses and receiver
@@ -207,7 +173,7 @@ With Wi and DPi the winding number and deltaP of pulse i
 def required_deltaP_allowed(npwindings, required_deltaP, N):
     """Check if winding numbers allow required pathway coherence jumps (deltaP) """
     for i in range(required_deltaP.shape[0]):
-        if not path_allowed(npwindings, required_deltaP[i], N):
+        if not path_is_allowed(npwindings, required_deltaP[i], N):
             return False
     return True
 
@@ -216,9 +182,25 @@ def calc_deltaP(path):
     """ Returns the pathway coherence jumps (deltaP) of a given coherence pathway """
     return np.array([path[i+1] - path[i] for i in range(len(path)-1)])
 
-def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways, ):
-    """A function to calculate if a winding number complies with conditions about required_pathways
-    and number of maximum unwante pathway
+#@njit
+def path_is_forbidden(path, forbidden_pathways):
+    """ Return True if path match one of the forbidden pathways. """
+    (num_path, num_path_elem) = forbidden_pathways.shape 
+    for i in range(num_path):
+        for j in range(num_path_elem):
+            if forbidden_pathways[i,j] == int(WILDCARD): # A wild card means True so skip element
+                continue
+            if path[j] !=  forbidden_pathways[i,j]:  # This element doesn't match a forbidden path line
+                break
+        else: # If for loop didn't break then no False is found meaning that a fobidden pathway is found
+#            print(f"Path {path} is among forbidden ones\n {forbidden_pathways}\n")
+            return True
+#    print(f"Path {path} is not among forbidden ones\n {forbidden_pathways}\n")
+    return False   # all lines screened triggered a break (path didn't match any forbidden pathways)
+
+def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways, allowed_pathways, forbidden_pathways):
+    """A function to calculate if a winding number complies with conditions about required, allowed or forbidden pathways
+    and number of maximum unwanted pathway
     """
     npwindings = np.ones(len(windings)+1, dtype=int)
     npdeltaP   = np.ones(len(windings)+1, dtype=int)
@@ -234,30 +216,41 @@ def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pat
 #            print(f"required_deltaP {required_deltaP} is allowed by windings {windings}")
 #            print(f"indeed : {(npwindings*required_deltaP[0]).sum()%N } is 0")
 
+    allowed = [] 
     unwanted = []
     unwanted_path_count = 0
 
     for path in itertools.product(*convd_allowed_coh):
         #check if this path is among required ones
-        if list(path) in required_pathways:
+        path_list = list(path)
+        if path_list in required_pathways:
 #            print(f"path {path} is among required ones")
             continue
 #        print(f"path {path} is not among required ones: is it allowed ?")
         npdeltaP[0:-1] = calc_deltaP(path)
-        if path_allowed(npwindings, npdeltaP, N):
-#                    print(f"path {path} is allowed")
-            unwanted.append(path)
-            unwanted_path_count += 1
-            if unwanted_path_count > unwanted_path_max:
-#                       print(f"exceeded allowed path count: {unwanted_path_count}")
-               return None
+        if path_is_allowed(npwindings, npdeltaP, N):
+#            print(f"path {path} is allowed")
+            if path_list in allowed_pathways:
+#                print(f"{path_list} is in {allowed_pathways}\n")
+                allowed.append(path)
+            else:
+                if path_is_forbidden(np.array(path_list), forbidden_pathways):
+#                    print(f"Path {path_list} is forbidden\n")
+                    return None
+                unwanted.append(path)
+                unwanted_path_count += 1
+                if unwanted_path_count > unwanted_path_max:
+#                    print(f"exceeded allowed path count: {unwanted_path_count}")
+                    return None
     # path for loop didn't break : winning winding!!
-    return (npwindings.tolist(), unwanted)
+    return (npwindings.tolist(), unwanted, allowed)
 #                print("wining windings !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 #                print(npwindings, unwanted)
     
 def check_windings_wrap(args_list):
-    """Just a wrap function that take a single list argument to allow using Pool.imap"""
+    """Just a wrap function that take a single list argument to allow 
+       using Pool.imap for parallelization and keyboard interrupt
+    """
     try:
         return check_windings(*args_list )
     except KeyboardInterrupt:
@@ -283,13 +276,14 @@ def search(stats):
 
         #parallelized for loop 
         for result in pool.imap_unordered(check_windings_wrap, 
-                       zip(prod(*searched_windings), rep(required_deltaP), rep(N), rep(convd_allowed_coh), rep(required_pathways.tolist())), 500):
+                       zip(prod(*searched_windings), rep(required_deltaP), rep(N), rep(convd_allowed_coh), 
+                            rep(required_pathways.tolist()), rep(allowed_pathways.tolist()), rep(forbidden_pathways)), 500):
 #        for windings in itertools.product(*searched_windings):
 #            result = check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways.tolist())
             if result is not None:
-                win_wind, unwanted = result
+                win_wind, unwanted, allowed = result
                 stats[N]['count'] += 1
-                stats[N][tuple(win_wind)] = unwanted
+                stats[N][tuple(win_wind)] = [unwanted, allowed]
                 
         print(f"Found {stats[N]['count']} valid windings for COG {N}")
 
@@ -307,16 +301,87 @@ def print_results(stats, filename):
         for windings, uwp in dic.items():
             if windings == 'count': continue
             lines.append(f"COG {N} -> windings {':'.join([str(i) for i in windings])}\n")
-            lines.append(f"         unwanted pathways allowed {uwp} \n") 
+            lines.append(f"         allowed pathways allowed {uwp[1]} \n") 
+            lines.append(f"         unwanted pathways allowed {uwp[0]} \n") 
     with open(filename, 'w') as f:
         for line in lines:
             f.write(line)
 
-stats = {}
-try:
-    search(stats)
-    print_results(stats, filename)
-except KeyboardInterrupt:
-    print_results(stats)
-    sys.exit()
+if __name__ == "__main__" :
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+        lines = read_input_file(filename)
+        parameters = parse_input_paramters(lines)
+        allowed_coherences = np.array(parameters['allowed_coherences'])
+        required_pathways = np.array(parameters['required_pathways'])
+        if 'forbidden_pathways' in parameters.keys():
+            forbidden_pathways = np.array(parameters['forbidden_pathways'])
+        else : 
+            forbidden_pathways = np.empty(shape=(0,0))
+        if 'allowed_pathways' in parameters.keys():
+            allowed_pathways = np.array(parameters['allowed_pathways'])
+        else : 
+            allowed_pathways = np.empty(shape=(0,0))
+        cycled_pulses = np.array(parameters['cycled_pulses'])
+        unwanted_path_max = parameters['unwanted_path_max']
+        COGN_min =  parameters['COGN_min']
+        COGN_max = parameters['COGN_max']
+        COGN_step = parameters['COGN_step']
+        max_core = parameters['max_core']
+    else:
+        # inputs the expected possible coherences
+        allowed_coherences = np.array([
+        # p1 p2 p1 pf pf pc            
+        [0 ,0, 0, 1, 0,],  # 3Q     0, 
+        [0 ,0, 0, 1, 0,],  # 2Q     0, 
+        [0 ,1, 1, 1, 1,],  # 1Q     0, 
+        [1 ,1, 1, 1, 1,],  # 0Q     1, 
+        [0 ,1, 1, 1, 1,],  #-1Q     0, 
+        [0 ,0, 0, 1, 0,],  #-2Q     0, 
+        [0 ,0, 0, 1, 0,],  #-3Q     0, 
+        ], dtype=int)
+
+        # specify the coherence pathway to authorize
+        required_pathways = np.array([
+        [0, -1, 1,-3, 0,],
+        [0,  1,-1, 3, 0,],
+        ], dtype=int)
+
+        allowed_pathways = np.array([
+        [0, -1, 1,-3, 0,],
+        [0,  1,-1, 3, 0,],
+        ], dtype=int)
+        # ,0, 0,
+        # ,0, 0,
+        forbidden_pathways = np.array([[]], dtype=int)
+
+        # p1 p2 p1 pf pf pc            
+        cycled_pulses = np.array([
+          1, 1, 1, 1, 
+        ]) # 0 if winding is not searched (winding fixed to 0), 1 if winding searched up to COGN 
+
+        unwanted_path_max = 0
+        COGN_min =  10
+        COGN_max = 24
+        COGN_step = 2
+        max_core = 4
+
+    required_deltaP = np.ones_like(required_pathways) 
+    required_deltaP[:,0:-1] = required_pathways[:,1:] - required_pathways[:,:-1]
+    wdg_len = required_deltaP.shape[-1]
+    num_of_pulses = wdg_len - 1
+
+    max_Q= allowed_coherences.shape[0]//2
+    # convd_allowed_coh to contain a list of coherence levels allowed between pulses
+    convd_allowed_coh = [[max_Q - coh for coh in 
+                          np.flatnonzero(allowed_coherences[:,col])] 
+                                             for col in range(wdg_len)]
+
+    stats = {}
+    try:
+        search(stats)
+        print_results(stats, filename)
+    except KeyboardInterrupt:
+        print_results(stats, filename)
+        sys.exit()
 
