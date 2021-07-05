@@ -198,7 +198,7 @@ def path_is_forbidden(path, forbidden_pathways):
 #    print(f"Path {path} is not among forbidden ones\n {forbidden_pathways}\n")
     return False   # all lines screened triggered a break (path didn't match any forbidden pathways)
 
-def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways, allowed_pathways, forbidden_pathways):
+def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways, allowed_pathways, forbidden_pathways, unwanted_path_max):
     """A function to calculate if a winding number complies with conditions about required, allowed or forbidden pathways
     and number of maximum unwanted pathway
     """
@@ -276,8 +276,10 @@ def search(stats):
 
         #parallelized for loop 
         for result in pool.imap_unordered(check_windings_wrap, 
-                       zip(prod(*searched_windings), rep(required_deltaP), rep(N), rep(convd_allowed_coh), 
-                            rep(required_pathways.tolist()), rep(allowed_pathways.tolist()), rep(forbidden_pathways)), 500):
+                       zip(prod(*searched_windings), rep(required_deltaP), 
+                           rep(N), rep(convd_allowed_coh), rep(required_pathways.tolist()), 
+                           rep(allowed_pathways.tolist()), rep(forbidden_pathways), 
+                           rep(unwanted_path_max)), 500):
 #        for windings in itertools.product(*searched_windings):
 #            result = check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways.tolist())
             if result is not None:
