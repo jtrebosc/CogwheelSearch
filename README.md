@@ -25,3 +25,7 @@ The program uses an input parameter file and write the results at the end of it.
 Provided input file should be self explanatory I hope...
 
 Julien TREBOSC
+
+TODO: 
+* implement multi channel phase cycling (hmqc, inept etc...)
+* improve code efficiency i.e. njit enable check_windings and search functions...
