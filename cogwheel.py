@@ -15,6 +15,7 @@ import multiprocessing as mp
 from numba import jit, njit
 
 WILDCARD = '-999'      # integer that represents a wild card for managing forbidden_pathways wildcard
+WILDCARDval = int(WILDCARD)
 
 allowed_parameters = { # key is name of parameter, value is dimension : 0 is scalar, 1 is list, 2  is list of list
     'allowed_coherences':2,
@@ -182,13 +183,13 @@ def calc_deltaP(path):
     """ Returns the pathway coherence jumps (deltaP) of a given coherence pathway """
     return np.array([path[i+1] - path[i] for i in range(len(path)-1)])
 
-#@njit
+@njit
 def path_is_forbidden(path, forbidden_pathways):
     """ Return True if path match one of the forbidden pathways. """
     (num_path, num_path_elem) = forbidden_pathways.shape 
     for i in range(num_path):
         for j in range(num_path_elem):
-            if forbidden_pathways[i,j] == int(WILDCARD): # A wild card means True so skip element
+            if forbidden_pathways[i,j] == WILDCARDval: # A wild card means True so skip element
                 continue
             if path[j] !=  forbidden_pathways[i,j]:  # This element doesn't match a forbidden path line
                 break
@@ -198,6 +199,7 @@ def path_is_forbidden(path, forbidden_pathways):
 #    print(f"Path {path} is not among forbidden ones\n {forbidden_pathways}\n")
     return False   # all lines screened triggered a break (path didn't match any forbidden pathways)
 
+#@jit
 def check_windings(windings, required_deltaP, N, convd_allowed_coh, required_pathways, allowed_pathways, forbidden_pathways, unwanted_path_max):
     """A function to calculate if a winding number complies with conditions about required, allowed or forbidden pathways
     and number of maximum unwanted pathway
