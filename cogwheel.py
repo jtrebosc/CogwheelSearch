@@ -91,7 +91,7 @@ def remove_comments(lines):
         new_lines.append(line.split('#')[0].strip()) # all lines are stripped 
     return new_lines
 
-def parse_input_paramters(lines):
+def parse_input_parameters(lines):
     """
     input : the lines from parameter file
     ----- result -----
@@ -315,7 +315,7 @@ if __name__ == "__main__" :
     if len(sys.argv) > 1:
         filename = sys.argv[1]
         lines = read_input_file(filename)
-        parameters = parse_input_paramters(lines)
+        parameters = parse_input_parameters(lines)
         allowed_coherences = np.array(parameters['allowed_coherences'])
         required_pathways = np.array(parameters['required_pathways'])
         if 'forbidden_pathways' in parameters.keys():
